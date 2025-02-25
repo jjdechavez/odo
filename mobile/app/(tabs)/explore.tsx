@@ -1,4 +1,4 @@
-import { StyleSheet, Image, Platform } from 'react-native';
+import { StyleSheet, Image, Platform, TouchableOpacity } from 'react-native';
 
 import { Collapsible } from '@/components/Collapsible';
 import { ExternalLink } from '@/components/ExternalLink';
@@ -6,6 +6,7 @@ import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import { router } from 'expo-router';
 
 export default function TabTwoScreen() {
   return (
@@ -91,6 +92,12 @@ export default function TabTwoScreen() {
           ),
         })}
       </Collapsible>
+      <TouchableOpacity 
+        style={styles.cameraButton}
+        onPress={() => router.push('/camera')}
+      >
+        <ThemedText style={styles.buttonText}>Capture Odometer</ThemedText>
+      </TouchableOpacity>
     </ParallaxScrollView>
   );
 }
@@ -105,5 +112,17 @@ const styles = StyleSheet.create({
   titleContainer: {
     flexDirection: 'row',
     gap: 8,
+  },
+  cameraButton: {
+    backgroundColor: '#007AFF',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
