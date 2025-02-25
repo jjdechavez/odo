@@ -15,3 +15,6 @@ uploads/
 # IDE
 .vscode/
 .idea/ 
+
+# database
+*.db
