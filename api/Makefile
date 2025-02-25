@@ -15,7 +15,7 @@ help: ## Show this help message
 	@echo 'Targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-.PHONY: setup install run clean test lint
+.PHONY: setup install run clean 
 
 setup: $(VENV)/bin/activate ## Setup development environment (venv, dependencies, directories)
 	@echo "Creating uploads directory..."

@@ -1,22 +1,19 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import cv2
-import numpy as np
-from PIL import Image
-import io
 import os
-import base64
-from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 from datetime import datetime
-import easyocr
-from collections import Counter
+import cv2
+from services.ocr import base64_to_cv2_img, extract_odometer_reading
 import traceback
+from database import Database
+from middlewares.auth import require_auth
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
+db = Database()
 
 # Configure CORS
 CORS(app, resources={
@@ -35,111 +32,6 @@ app.config.update(
     DEBUG=os.getenv('FLASK_DEBUG', '0') == '1'
 )
 
-def base64_to_cv2_img(base64_string):
-    """Convert base64 string to OpenCV image"""
-    # Remove data:image/jpeg;base64, prefix if it exists
-    if 'base64,' in base64_string:
-        base64_string = base64_string.split('base64,')[1]
-    
-    # Decode base64 string to bytes
-    img_bytes = base64.b64decode(base64_string)
-    
-    # Convert bytes to numpy array
-    nparr = np.frombuffer(img_bytes, np.uint8)
-    
-    # Decode numpy array as image
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    
-    return img
-
-def validate_reading(reading, user_reading):
-    """Validate OCR reading against user input"""
-    try:
-        if not reading:
-            return False
-        
-        # Convert both to strings for comparison
-        reading_str = str(reading)
-        user_reading_str = str(user_reading)
-        
-        print(f"Validating - OCR: {reading_str} vs User: {user_reading_str}")
-        
-        # Basic length check
-        if len(reading_str) < 4 or len(reading_str) > 8:
-            print(f"❌ Invalid length: {len(reading_str)}")
-            return False
-        
-        # Check for exact match
-        if reading_str == user_reading_str:
-            print("✓ Exact match")
-            return True
-        
-        # Check if one contains the other
-        if reading_str in user_reading_str or user_reading_str in reading_str:
-            print("✓ Partial match")
-            return True
-        
-        # Check if they're similar (allow for small differences)
-        if len(reading_str) == len(user_reading_str):
-            differences = sum(1 for a, b in zip(reading_str, user_reading_str) if a != b)
-            if differences <= 1:  # Allow one digit difference
-                print("✓ Similar match (one digit difference)")
-                return True
-        
-        print("❌ No match")
-        return False
-        
-    except Exception as e:
-        print(f"Error in reading validation: {str(e)}")
-        return False
-
-def extract_odometer_reading(image, user_reading):
-    """Extract odometer reading using EasyOCR"""
-    try:
-        print("\n=== Starting EasyOCR Process ===")
-        print(f"User reading: {user_reading}")
-        
-        # Initialize EasyOCR reader (only numbers)
-        reader = easyocr.Reader(['en'], gpu=True)  # Set gpu=False if no GPU available
-        
-        # Get results
-        results = reader.readtext(image, allowlist='0123456789')
-        
-        print(f"Raw EasyOCR results: {results}")
-        
-        # Extract all number sequences
-        readings = []
-        for detection in results:
-            bbox, text, conf = detection
-            digits = ''.join(filter(str.isdigit, text))
-            if digits:
-                readings.append((digits, conf))
-                print(f"Found reading: {digits} (confidence: {conf:.2f})")
-        
-        if not readings:
-            print("No readings found")
-            return None
-        
-        # Sort by confidence
-        readings.sort(key=lambda x: x[1], reverse=True)
-        
-        # Validate readings against user input
-        user_reading_str = str(user_reading)
-        
-        for reading, conf in readings:
-            if validate_reading(reading, user_reading):
-                print(f"✓ Valid reading found: {reading} (confidence: {conf:.2f})")
-                return reading
-        
-        # If no valid reading found, return the highest confidence reading
-        print(f"! No valid reading found, using highest confidence: {readings[0][0]}")
-        return readings[0][0]
-        
-    except Exception as e:
-        print(f"Error in EasyOCR processing: {str(e)}")
-        traceback.print_exc()
-        return None
-
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -148,7 +40,57 @@ def health_check():
         'timestamp': datetime.now().isoformat()
     })
 
+@app.route('/auth/register', methods=['POST'])
+def register():
+    data = request.json
+    
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({'error': 'Username and password are required'}), 400
+    
+    # Only admins can create admin users
+    role = data.get('role', 'user')
+    if role == 'admin':
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'Admin creation requires authentication'}), 401
+        
+        token = auth_header.split(' ')[1]
+        user = db.verify_session(token)
+        if not user or user['role'] != 'admin':
+            return jsonify({'error': 'Only admins can create admin users'}), 403
+
+    success = db.create_user(
+        username=data['username'],
+        password=data['password'],
+        role=role
+    )
+    
+    if not success:
+        return jsonify({'error': 'Username already exists'}), 409
+    
+    return jsonify({'message': 'User created successfully'}), 201
+
+@app.route('/auth/login', methods=['POST'])
+def login():
+    data = request.json
+    
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({'error': 'Username and password are required'}), 400
+    
+    user = db.verify_user(data['username'], data['password'])
+    
+    if not user:
+        return jsonify({'error': 'Invalid credentials'}), 401
+    
+    token = db.create_session(user['id'])
+    
+    return jsonify({
+        'token': token,
+        'role': user['role']
+    })
+
 @app.route('/odometer', methods=['POST'])
+@require_auth(roles=['admin', 'user'])
 def upload_odometer():
     """Upload odometer image with user reading"""
     try:
