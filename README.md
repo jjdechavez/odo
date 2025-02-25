@@ -4,6 +4,7 @@ A mobile application that captures odometer readings using OCR (Optical Characte
 
 ## Project Structure 
 
+```
 ├── api/
 │   ├── app.py
 │   ├── requirements.txt
