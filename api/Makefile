@@ -1,7 +1,7 @@
 # Variables
 VENV = venv
-PYTHON = $(VENV)/bin/python3.13
-PIP = $(VENV)/bin/pip3.13
+PYTHON = $(VENV)/bin/python
+PIP = $(VENV)/bin/pip
 FLASK = $(VENV)/bin/flask
 
 # Default target
@@ -15,28 +15,36 @@ help: ## Show this help message
 	@echo 'Targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-.PHONY: venv
-venv: ## Create virtual environment
-	python3 -m venv $(VENV)
+.PHONY: setup install run clean test lint
 
-.PHONY: install
-install: venv ## Install dependencies
-	$(PIP) install -r requirements.txt
+setup: $(VENV)/bin/activate ## Setup development environment (venv, dependencies, directories)
+	@echo "Creating uploads directory..."
+	@mkdir -p uploads
+	@echo "Creating .env file..."
+	@cp .env.example .env || echo "FLASK_ENV=development\nFLASK_APP=app.py\nFLASK_DEBUG=1\nUPLOAD_FOLDER=uploads\nALLOWED_EXTENSIONS=png,jpg,jpeg\nMAX_CONTENT_LENGTH=2097152\nAPI_PORT=8086\nAPI_HOST=0.0.0.0\nCORS_ORIGINS=http://localhost:3000,http://localhost:8081,exp://192.168.1.2:8081,exp://localhost:8081" > .env
+	@echo "Setup complete!"
 
-.PHONY: setup
-setup: install ## Setup project (create venv and install dependencies)
-	mkdir -p uploads
+$(VENV)/bin/activate: requirements.txt
+	@echo "Creating virtual environment..."
+	@python -m venv $(VENV)
+	@echo "Installing dependencies..."
+	@$(PIP) install -r requirements.txt
+	@touch $(VENV)/bin/activate
 
-.PHONY: clean
-clean: ## Remove virtual environment and cache files
-	rm -rf $(VENV)
-	rm -rf __pycache__
-	rm -rf *.pyc
-	rm -rf uploads/*
+install: ## Install/update dependencies
+	@echo "Installing dependencies..."
+	@$(PIP) install -r requirements.txt
 
-.PHONY: run
-run: ## Run development server
-	$(PYTHON) app.py
+run: ## Run the API server
+	@echo "Starting API server..."
+	@$(FLASK) run --host=0.0.0.0 --port=8086
+
+clean: ## Remove virtual environment and cached files
+	@echo "Cleaning up..."
+	@rm -rf $(VENV)
+	@rm -rf __pycache__
+	@rm -rf .pytest_cache
+	@echo "Cleanup complete!"
 
 .PHONY: docker-build
 docker-build: ## Build Docker image
